@@ -1,16 +1,3 @@
-InsertCoolTexts()
-InsertPluginDescriptions()
-Run(ThisLightThemeIsKillingMe.mp4)
-
-
-
-
-
-
-
-
-
-
 ### Setup
 
 Clone this repository first.
