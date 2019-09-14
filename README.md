@@ -12,9 +12,14 @@ al: aka Alert Level, 0 = No one can hear the alert, 1 = only Admins can hear the
 
 cnp: aka Core Nuke Protection, 0 = No Protection at all, 1 = Disable Explosions Near Core Only, 2 = Disable Explosions Everywhere on the map.
 
-logging: The Activeness of the plugin's logging system, used for recording the nuke logs.
+logging: The Activeness of the plugin's logging system, used for recording the nuke logs
 
-Commands:{
+bn: List the Nukes that was once Built on the map
+
+dn: List the Nukes that was Destoryed
+
+### Commands
+
   bn - List the Nukes that was once Built on the map (could be a long list)
   
   dn - List the Nukes that was Destoryed (could be a long list)
@@ -38,7 +43,6 @@ Commands:{
   logging <true|false> - Change to Log or not to log the logs of nukes related to that game. 
   
   help - Display this message again
-}
 
 Note that clients cannot change any value of the settings, and only clients with admin status can see the currect status of the settings.
 
