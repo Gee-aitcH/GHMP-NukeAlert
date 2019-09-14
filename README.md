@@ -1,6 +1,6 @@
 ## Nuke Alert Made By GH
 
-###### (updated to v92-v0.2)
+###### (updated to v92)
 ### Features
 
 All commands are under the prefix "ghna", which stands for GH's Nuke Alert. An Example of a Working Command - "ghna help". There are a few configurable settings, "mode", "al", "cnp", "logging". In addition, there are "bn", dn" and "rtrs".
