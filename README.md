@@ -3,8 +3,7 @@
 ###### (updated to v92)
 ### Features
 
-All commands are under the prefix "ghna", which stands for GH's Nuke Alert. An Example of a Working Command - "ghna help"
-There are a few configurable settings, "mode", "al", "cnp", "logging"
+All commands are under the prefix "ghna", which stands for GH's Nuke Alert. An Example of a Working Command - "ghna help". There are a few configurable settings, "mode", "al", "cnp", "logging". In addition, there are "bn", dn" and "rtrs".
 
 mode: The Activeness of the plugin.
 
@@ -17,6 +16,8 @@ logging: The Activeness of the plugin's logging system, used for recording the n
 bn: List the Nukes that was once Built on the map
 
 dn: List the Nukes that was Destoryed
+
+rtrs - List all the thorium reactors and their distance to the nearest ally core on the map
 
 ### Commands
 
