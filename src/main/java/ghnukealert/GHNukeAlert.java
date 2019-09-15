@@ -223,7 +223,7 @@ public class GHNukeAlert extends Plugin{
 
     private void alert(Tile tile, Block block, Player builder, boolean building){
         //System.out.println("[Debug]: " + GHUtil.tileToSimpleString(tile));
-        if(world.tile(tile.x, tile.y) != null && world.tile(tile.x, tile.y).block() != block)
+        if(world.tile(tile.x, tile.y) == null || world.tile(tile.x, tile.y).block() != block)
             //System.out.println("[Alert Ended]: " + GHUtil.tileToSimpleString(tile));
             return;
         if(lastAlert[building ? 0 : 1] + nukealertinterval() < time()){
