@@ -566,19 +566,12 @@ public class GHNukeAlert extends Plugin{
             //D.I.E.  Deconstructed, has Items, Exploded. :D
 
             //L.M.A.O Long & Messy, Actual Outrage.
-            /*return ((deconstructed() || hasItem() || overheat() ? "[" : " ") + " ") +
-                    (deconstructed() ? (colorized ? "[ACCENT]" : "") + "D" : " " + (colorized ? "[]" : "")) +
-                    (hasItem() ? (colorized ? "[#f9a3c7]" : "") + "I" : " " + (colorized ? "[]" : "")) +
-                    (overheat() ? (colorized ? "[RED]" : "") + "E" : " " + (colorized ? "[]" : "") +
-                    ((deconstructed() || hasItem() || overheat() ? "]" : " ") + " ") +
-                    "Health: " + health + ", Heat: " + heat + ", Items: " + items);*/
-
             String result = "";
-            result += (deconstructed() || hasItem() || overheat() ? "[" : " ") + " ";
-            result += deconstructed() ? (colorized ? "[ACCENT]" : "") + "D" : " " + (colorized ? "[]" : "");
-            result += hasItem() ? (colorized ? "[#f9a3c7]" : "") + "I" : " " + (colorized ? "[]" : "");
-            result += overheat() ? (colorized ? "[RED]" : "") + "E" : " " + (colorized ? "[]" : "");
-            result += (deconstructed() || hasItem() || overheat() ? "]" : " ") + " ";
+            result += deconstructed() || hasItem() || overheat() ? "[" : " ";
+            result += deconstructed() ? (colorized ? "[[accent]" : "") + "D[]" : " ";
+            result += hasItem() ? (colorized ? "[#f9a3c7]" : "") + "I[]" : " ";
+            result += overheat() ? (colorized ? "[RED]" : "") + "E[]" : " ";
+            result += deconstructed() || hasItem() || overheat() ? "]" : " ";
 
             result += "Healthf: " + smootherFloatLog(healthf, 5) + ", Heat: " + smootherFloatLog(heat, 5) + ", Items: " + smootherIntLog(items, 2);
             return result;
