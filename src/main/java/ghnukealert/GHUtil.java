@@ -2,6 +2,7 @@ package ghnukealert;
 
 import io.anuke.arc.collection.Array;
 import io.anuke.arc.graphics.Color;
+import io.anuke.arc.graphics.Colors;
 import io.anuke.arc.math.geom.Vector2;
 import io.anuke.mindustry.entities.type.Player;
 import io.anuke.mindustry.gen.Call;
@@ -9,6 +10,7 @@ import io.anuke.mindustry.type.Item;
 import io.anuke.mindustry.world.Tile;
 import io.anuke.mindustry.world.blocks.BuildBlock;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
@@ -157,10 +159,45 @@ public class GHUtil {
     }
 
     public static String fullPlayerName(Player player){
-        return colorizeName(player, Color.white) + "(#" + player.id + ")";
+        return colorizeName(player, new Color(1,1,1)) + " (#" + player.id + ")";
     }
     public static String fullPlayerName(Player player, Color def){
         return fullPlayerName(player) + "[#" + def.toString().toUpperCase() + "]";
+    }
+    public static String fullPlayerName(Player player, boolean def){
+        int i = 0;
+        Array<String> potentialColorCode = new Array<>();
+        char c;
+        char[] name = player.name.toCharArray();
+        for(int j = 0; j < name.length; j++){
+            if(name[j] == '[') {
+                for(int k = j; k < name.length; k++)
+                    if(name[k] == ']')
+                        potentialColorCode.add(player.name.substring(j, k-j));
+            }
+        }
+        try {
+            if (potentialColorCode.size == 0) {
+                String mod = player.name;
+                Field[] fields = Color.class.getDeclaredFields();
+                for (int j = 0; j < fields.length; ) {
+                    fields[j].setAccessible(true);
+                    if (potentialColorCode.contains(((Color)(fields[j].get(null))).toString() + "")) {
+                        mod = mod.replace(fields[j].getName(), " ");
+                        i++;
+                    } else if (potentialColorCode.contains(Colors.get(fields[j].getName()) + "")) {
+
+                    } else j++;
+
+                }
+            }
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+        return fullPlayerName(player) + def;
+    }
+    public static String fullPlayerNameLog(Player player){
+        return player.name + " (#" + player.id + ")";
     }
 
     public static String onOffString(boolean b){
