@@ -9,9 +9,14 @@ repositories{
     maven{ url 'https://jitpack.io' }
 }
 
+ext{
+    //the build number that this plugin is made for; v93 would be 'build 93'.
+    mindustryVersion = 'v94'
+}
+
 dependencies{
-    compileOnly "com.github.Anuken.Arc:arc-core:07adea096564d4d38f9364365ecf0effcfceabf2"
-    compileOnly "com.github.Anuken.Mindustry:core:master-SNAPSHOT"
+    compileOnly "com.github.Anuken.Arc:arc-core:$mindustryVersion"
+    compileOnly "com.github.Anuken.Mindustry:core:$mindustryVersion"
 }
 
 jar{
