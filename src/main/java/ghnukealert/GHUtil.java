@@ -159,6 +159,7 @@ public class GHUtil {
     }
 
     public static String fullPlayerName(Player player){
+        if(player == null || player.name == null) return null;
         return colorizeName(player, new Color(1,1,1)) + " (#" + player.id + ")";
     }
     public static String fullPlayerName(Player player, Color def){
