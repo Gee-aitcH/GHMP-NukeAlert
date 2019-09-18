@@ -89,7 +89,7 @@ public class GHNukeAlert extends Plugin{
 
     @Override
     public void registerServerCommands(CommandHandler handler){
-        handler.register("ghna", params, description, arg -> {
+        handler.register("ghna", params, "Type 'ghna help' for more information", arg -> {
             if(arg.length == 0)
                 info(plguinStatus());
             else
@@ -166,7 +166,7 @@ public class GHNukeAlert extends Plugin{
     @Override
     public void registerClientCommands(CommandHandler handler){
 
-        handler.<Player>register("ghna", params, clientdescription, (arg, player) -> {
+        handler.<Player>register("ghna", params, "Type '/ghna help' for more information", (arg, player) -> {
             if(!player.isAdmin) {
                 print("[scarlet][ACCESS DENIED] This is an admin only command.", player);
                 return;
