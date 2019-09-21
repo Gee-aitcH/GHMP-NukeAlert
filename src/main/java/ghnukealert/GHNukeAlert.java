@@ -48,7 +48,6 @@ public class GHNukeAlert extends Plugin{
     private long[] lastAlert = new long[2];
     private float coreProtectionRange = 12 * tilesize;
 
-    private long lastMsgSent = -1;
     private boolean sendingMsg = false;
 
     private String params = "[mode|bn|dn|rtrs|al|ac|help] [true|false]";
@@ -57,7 +56,6 @@ public class GHNukeAlert extends Plugin{
             "bn - List the Nukes that was once Built on the map (could be a long list)" + LN +
             "dn - List the Nukes that was Destoryed (could be a long list)" + LN +
             "rtrs - List all the thorium reactors and their distance to the nearest ally core on the map" + LN +
-            "pj - List all players joined this game" + LN +
 
             "mode - Display current mode" + LN +
             "al - Display current nuke announce level" + LN +
@@ -72,7 +70,6 @@ public class GHNukeAlert extends Plugin{
             "bn - List the Nukes that was once Built on the map (could be a long list)" + LN +
             "dn - List the Nukes that was Destoryed (could be a long list)" + LN +
             "rtrs - List all the thorium reactors and their distance to the nearest ally core on the map" + LN +
-            "pj - List all players joined this game" + LN +
 
             "mode - Display current mode" + LN +
             "mode <true|false> - Change mode to" + LN +
