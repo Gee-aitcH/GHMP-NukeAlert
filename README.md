@@ -1,9 +1,9 @@
 ## Nuke Alert Made By GH
 
-###### (updated to v92)
+###### (updated to v96.0.5)
 ### Features
 
-All commands are under the prefix "ghna", which stands for GH's Nuke Alert. An Example of a Working Command - "ghna help". There are a few configurable settings, "mode", "al", "cnp", "logging". In addition, there are "bn", dn" and "rtrs".
+All commands are under the prefix "ghna", which stands for GH's Nuke Alert. An Example of a Working Command - "ghna help". There are a few configurable settings like "mode", "al", "cnp", "logging". In addition, there are "bn", dn" and "rtrs".
 
 mode: The Activeness of the plugin.
 
@@ -21,32 +21,46 @@ rtrs - List all the thorium reactors and their distance to the nearest ally core
 
 ### Commands
 
-  bn - List the Nukes that was once Built on the map (could be a long list)
-  
-  dn - List the Nukes that was Destoryed (could be a long list)
-  
-  rtrs - List all the thorium reactors and their distance to the nearest ally core on the map
+bn - List the Nukes that was once Built on the map (could be a long list)
 
-  mode - Display current mode
-  
-  mode <true|false> - Change mode to active/deactive mode 
-  
-  al - Display current nuke announce level
-  
-  al <0|1|2> - Change who can hear the nuke alert (0 = No one, 1 = Admins only, 2 = Everyone)
-  
-  cnp - Display current Core Nuke Protection Status
-  
-  cnp <0|1|2> - Change Core Nuke Protection Status (0 = No Protection, 1 = Near Core Only, 2 = Everywhere on the map)
-  
-  logging - Display current Logging mode
-  
-  logging <true|false> - Change to Log or not to log the logs of nukes related to that game. 
-  
-  help - Display this message again
+dn - List the Nukes that was Destoryed (could be a long list)
 
-Note that clients cannot change any value of the settings, and only clients with admin status can see the currect status of the settings.
+rtrs - List all the thorium reactors and their distance to the nearest ally core on the map
 
+mode - Display current mode
+
+mode <true|false> - Change mode to
+
+al - Display current nuke announce level
+
+al <0|1|2> - Change who can hear the nuke alert (0 = No one, 1 = Admins only, 2 = Everyone)
+
+aac - Display current Allow Admin Configure mode
+
+aac <true|false> - Change to Admin can Configure the settings of this plugin or not
+
+alim - Display current amount of max nuke alerts (/s)
+
+alim <int> - Change the amount of max nuke alerts (/s) (-1 = No Limit)
+  
+cnp - Display current Core Nuke Protection Status
+  
+cnp <0|1|2> - Change Core Nuke Protection Status (0 = No Protection, 1 = Near Core Only, 2 = Everywhere on the map)
+  
+interval - Display current Nuke Alert Interval
+  
+interval <0|1|2> - Change Nuke Alert Interval (-1 = No Limit)
+  
+logging - Display current Logging mode
+  
+logging <true|false> - Change to Log or not to log the logs of nukes related to that game
+  
+clear - Clear the Alerting List of Nukes
+  
+help - Display this message again
+
+Note: `allowadminconfig` is set to `true` by default, meaning admins can configure the settings. To switch off, do `ghna aac false` in server console.
+  
 ### Setup
 
 Clone this repository first.

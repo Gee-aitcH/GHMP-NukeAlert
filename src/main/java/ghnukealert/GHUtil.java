@@ -19,6 +19,7 @@ import static io.anuke.mindustry.Vars.*;
 
 public class GHUtil {
 
+    public static String LN = System.getProperty("line.separator");
     //Get World Tiles
     public static Tile[] getTiles(){
         ArrayList<Tile> result = new ArrayList<>();
@@ -128,11 +129,14 @@ public class GHUtil {
                 tile.x, tile.y, tile.block().name, tile.floor().name);
     }
 
-    public static String tilesToSimpleString(Iterable<Tile> tiles){
+    public static String tilesToSimpleString(Iterable<Tile> tiles) {
+        return tilesToSimpleString(tiles, ",\n");
+    }
+    public static String tilesToSimpleString(Iterable<Tile> tiles, String separator){
         Array<String> result = new Array<>();
         for(Tile tile : tiles)
             result.add(tileToSimpleString(tile));
-        return result.toString(",\n");
+        return result.toString(separator);
     }
 
     public static String playerToSimpleString(Player player){
@@ -161,6 +165,9 @@ public class GHUtil {
     public static String fullPlayerName(Player player){
         if(player == null || player.name == null) return null;
         return colorizeName(player, new Color(1,1,1)) + " (#" + player.id + ")";
+    }
+    public static String fullPlayerName(Player player, String def){
+        return fullPlayerName(player) + def;
     }
     public static String fullPlayerName(Player player, Color def){
         return fullPlayerName(player) + "[#" + def.toString().toUpperCase() + "]";

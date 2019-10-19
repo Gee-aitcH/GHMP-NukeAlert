@@ -3,6 +3,7 @@ package ghnukealert;
 import io.anuke.arc.*;
 import io.anuke.arc.collection.*;
 import io.anuke.arc.files.FileHandle;
+import io.anuke.arc.function.Supplier;
 import io.anuke.arc.math.geom.Geometry;
 import io.anuke.arc.util.*;
 import io.anuke.arc.util.Timer;
@@ -13,79 +14,113 @@ import io.anuke.mindustry.game.Team;
 import io.anuke.mindustry.plugin.Plugin;
 import io.anuke.mindustry.world.Block;
 import io.anuke.mindustry.world.Tile;
+import io.anuke.mindustry.world.blocks.BuildBlock;
 import io.anuke.mindustry.world.blocks.power.NuclearReactor;
-import io.anuke.mindustry.world.blocks.storage.CoreBlock;
 
 import java.io.*;
 import java.util.*;
 
+import static ghnukealert.GHUtil.LN;
+import static ghnukealert.GHUtil.getTiles;
 import static io.anuke.mindustry.Vars.*;
+import static io.anuke.mindustry.core.GameState.State.playing;
+import static java.util.Map.Entry.comparingByValue;
+import static java.util.stream.Collectors.toMap;
 
-public class GHNukeAlert extends Plugin{
+public class GHNukeAlert extends Plugin {
 
     /*  List of Settings Variable Used
-    * nukealert
-    * nukealertinterval
-    * nukealertlevel
-    * nukeprotection
-    * nukelogging
-    *
-    */
+     * nukealert
+     * nukealertinterval
+     * nukealertlevel
+     * nukeprotection
+     * nukelogging
+     * allowadminconfig
+     */
 
     //TODO:
     //
 
-    private static String LN = System.getProperty("line.separator");
     private static FileHandle ghnaDirectory;
+    private static FileHandle ghnaLogsDirectory;
+    private static FileHandle ghnaSettingsDirectory;
     private ObjectMap<Tile, Player> prebuiltNukes = new ObjectMap<>();
     private Array<BuiltNuke> builtNukes = new Array<>();
     private Array<DestroyedNuke> destroyedNukes = new Array<>();
     private ObjectMap<Player, NukesBuilt> nukeBuilders = new ObjectMap<>();
+    private HashMap<Tile, Boolean> alertingNukes = new HashMap<>();
+
     private ObjectMap<Player, Array<String>> pendingMessages = new ObjectMap<>();
     private Array<String> pendingInfo = new Array<>();
 
-    private long startTime, endTime, minInterval = 1000, maxInterval = 60000;
-    private long[] lastAlert = new long[2];
+    private long startTime, endTime;
+    private int minInterval = 1000, maxInterval = 60000;
+    private long lastAlert, lastSent = -1;
     private float coreProtectionRange = 12 * tilesize;
+    private String textColor = "[lightgray]";
 
-    private long lastMsgSent = -1;
+    private boolean toAlert = true;
+    private ObjectMap<Player, HashSet<Tile>> builtNukesToAlert = new ObjectMap<>();
+    private ObjectMap<Player, HashSet<Tile>> buildingNukesToAlert = new ObjectMap<>();
+    private Player nullBuilder = new Player() {{
+        con = null;
+    }};
+    private int index = 0, sentThisSec;
+
     private boolean sendingMsg = false;
 
     private String params = "[mode|bn|dn|rtrs|al|ac|help] [true|false]";
     private String clientdescription = LN +
-            "Nuke Alert Made By GH" + LN +
-            "bn - List the Nukes that was once Built on the map (could be a long list)" + LN +
-            "dn - List the Nukes that was Destoryed (could be a long list)" + LN +
-            "rtrs - List all the thorium reactors and their distance to the nearest ally core on the map" + LN +
-            "pj - List all players joined this game" + LN +
+            "[accent]Nuke Alert[] Made By [sky]GH[]" + LN +
+            "[orange]bn [amount][] - List the Nukes that was once Built on the map (could be a long list)" + LN +
+            "[orange]dn [amount][] - List the Nukes that was Destoryed (could be a long list)" + LN +
+            "[orange]rtrs [amount][] - List all the thorium reactors and their distance to the nearest ally core on the map" + LN +
 
-            "mode - Display current mode" + LN +
-            "al - Display current nuke announce level" + LN +
-            "cnp - Display current Core Nuke Protection Status" + LN +
-            "logging - Display current Logging mode" + LN +
+            "[orange]mode[] - Display current mode" + LN +
+            "[orange]mode <true|false>[] - Change mode to" + LN +
+            "[orange]al[] - Display current nuke announce level" + LN +
+            "[orange]al <0|1|2>[] - Change who can hear the nuke alert (0 = No one, 1 = Admins only, 2 = Everyone)" + LN +
+            "[orange]aac[] - Display current Allow Admin Configure mode" + LN +
+            "[orange]aac <true|false>[] - Change to Admin can Configure the settings of this plugin or not" + LN +
+            "[orange]alim[] - Display current amount of max nuke alerts (/s)" + LN +
+            "[orange]alim <int>[] - Change the amount of max nuke alerts (/s) (-1 = No Limit)" + LN +
+            "[orange]cnp[] - Display current Core Nuke Protection Status" + LN +
+            "[orange]cnp <0|1|2>[] - Change Core Nuke Protection Status (0 = No Protection, 1 = Near Core Only, 2 = Everywhere on the map)" + LN +
+            "[orange]interval[] - Display current Nuke Alert Interval" + LN +
+            "[orange]interval <0|1|2>[] - Change Nuke Alert Interval (-1 = No Limit)" + LN +
+            "[orange]logging[] - Display current Logging mode" + LN +
+            "[orange]logging <true|false>[] - Change to Log or not to log the logs of nukes related to that game" + LN +
 
-            "help - Display this message again" + LN +
-            "(Admins Only)";
+            "[orange]clear[] - Clear the Alerting List of Nukes" + LN +
+            "[orange]help[] - Display this message again" + LN +
+            "(Admin Only)";
+
 
     private String description = LN +
             "Nuke Alert Made By GH" + LN +
             "bn - List the Nukes that was once Built on the map (could be a long list)" + LN +
             "dn - List the Nukes that was Destoryed (could be a long list)" + LN +
             "rtrs - List all the thorium reactors and their distance to the nearest ally core on the map" + LN +
-            "pj - List all players joined this game" + LN +
 
             "mode - Display current mode" + LN +
             "mode <true|false> - Change mode to" + LN +
             "al - Display current nuke announce level" + LN +
             "al <0|1|2> - Change who can hear the nuke alert (0 = No one, 1 = Admins only, 2 = Everyone)" + LN +
+            "aac - Display current Allow Admin Configure mode" + LN +
+            "aac <true|false> - Change to Admin can Configure the settings of this plugin or not" + LN +
+            "alim - Display current amount of max nuke alerts (/s)" + LN +
+            "alim <int> - Change the amount of max nuke alerts (/s) (-1 = No Limit)" + LN +
             "cnp - Display current Core Nuke Protection Status" + LN +
             "cnp <0|1|2> - Change Core Nuke Protection Status (0 = No Protection, 1 = Near Core Only, 2 = Everywhere on the map)" + LN +
+            "interval - Display current Nuke Alert Interval" + LN +
+            "interval <0|1|2> - Change Nuke Alert Interval (-1 = No Limit)" + LN +
             "logging - Display current Logging mode" + LN +
             "logging <true|false> - Change to Log or not to log the logs of nukes related to that game" + LN +
 
+            "clear - Clear the Alerting List of Nukes" + LN +
             "help - Display this message again";
 
-    public GHNukeAlert(){
+    public GHNukeAlert() {
         Events.on(WorldLoadEvent.class, e -> worldLoadEvent());
         Events.on(BuildSelectEvent.class, this::buildSelectEvent);
         Events.on(BlockBuildEndEvent.class, this::blockBuildEndEvent);
@@ -93,243 +128,602 @@ public class GHNukeAlert extends Plugin{
         ghnaDirectory = dataDirectory.child("ghplugins/");
         ghnaDirectory = ghnaDirectory.child("ghna/");
         ghnaDirectory.mkdirs();
-        startTime = endTime = lastAlert[0] = lastAlert[1] = -1;
+        ghnaLogsDirectory = ghnaDirectory.child("logs/");
+        ghnaSettingsDirectory = ghnaDirectory.child("settings/");
+        ghnaLogsDirectory.mkdirs();
+        ghnaSettingsDirectory.mkdirs();
+        startTime = endTime = lastAlert = -1;
+
+        //Welp, this is the update function now. Lmao
+        Core.app.addListener(new ApplicationListener() {
+            public void update() {
+                //printToEveryone("Update: state: " + state.getState() + ": " + (state.getState() != playing) + ", index: " + index + ": " + (index % 6 != 0));
+                if (state.getState() != playing) return;
+                if (playerGroup.all().size < 1){
+                    index = 0;
+                    return;
+                }
+                if (index % 30 * 60 == 0){
+                    for(HashSet<Tile> tiles : builtNukesToAlert.values())
+                        for(Tile tile : tiles)
+                            if(nukeIndex(tile) == -1)
+                                tiles.remove(tile);
+
+                    for(HashSet<Tile> tiles : buildingNukesToAlert.values())
+                        for(Tile tile : tiles)
+                            if(nukeIndex(tile) == -1)
+                                tiles.remove(tile);
+                }
+                //info("update(): builtNukesToAlert: " + builtNukesToAlert.size + ", buildingNukesToAlert: " + buildingNukesToAlert.size + LN +
+                //        (toAlert + ", last: " + lastAlert + ", inter: " + nukealertinterval() + ", t: " + time()));
+                if (toAlert && lastAlert + nukealertinterval() < time() && (builtNukesToAlert.size >= 1 || buildingNukesToAlert.size >= 1)) {
+                    String strToAlert = "[scarlet]";
+                    if (builtNukesToAlert.size > 0) {
+                        strToAlert += "[Alert]: BUILT NUKES ALERT!" + LN;
+
+                        strToAlert += "NUKES: <[gold][";
+                        HashSet<Tile> set = new HashSet<>();
+                        outer:
+                        for (HashSet<Tile> tiles : builtNukesToAlert.values())
+                            for(Tile tile : tiles)
+                                if (set.size() < 10) set.add(tile);
+                                else break outer;
+                        Array<String> arr = new Array<>();
+                        set.forEach(t -> arr.add("[" + t.x + ", " + t.y + "]"));
+                        strToAlert += arr.toString(", ");
+                        strToAlert += "][]>." + LN;
+
+                        strToAlert += "BUILT BY PLAYERS: [< ";
+                        Array<String> playerNames = new Array<>();
+                        for (Player player : builtNukesToAlert.keys())
+                            if(playerNames.size < 10) playerNames.add(GHUtil.colorizeName(player));
+                            else break;
+                        strToAlert += playerNames.toString(" [scarlet]>, < ");
+                        strToAlert += " [scarlet]>].";
+
+                        //info("update(): builtNukesToAlert.strToAlert: " + strToAlert.toString());
+                    }
+                    if (buildingNukesToAlert.size > 0) {
+                        if (strToAlert.length() > 0)
+                            strToAlert += (LN + LN);
+                        strToAlert += "[Alert]: BUILDING NUKES ALERT!" + LN;
+
+                        strToAlert += "NUKES: <[gold][";
+                        HashSet<Tile> set = new HashSet<>();
+                        outer:
+                        for (HashSet<Tile> tiles : buildingNukesToAlert.values())
+                            for(Tile tile : tiles)
+                                if (set.size() < 10) set.add(tile);
+                                else break outer;
+                        Array<String> arr = new Array<>();
+                        set.forEach(t -> arr.add("[" + t.x + ", " + t.y + "]"));
+                        strToAlert += arr.toString(", ");
+                        strToAlert += "][]>. " + LN;
+
+                        strToAlert += "BUILDING BY PLAYERS: [< ";
+                        Array<String> playerNames = new Array<>();
+                        for (Player player : buildingNukesToAlert.keys())
+                            if(playerNames.size < 10) playerNames.add(GHUtil.colorizeName(player));
+                            else break;
+                        strToAlert += playerNames.toString(" [scarlet]>, < ");
+                        strToAlert += " [scarlet]>].";
+                        //info("update(): buildingNukesToAlert.strToAlert: " + strToAlert.toString());
+                    }
+
+                    pendingMessages.keys().forEach(p1 -> {
+                        boolean has = false;
+                        for(Player p2 : playerGroup.all())
+                            if(p1 == p2) has = true;
+                        if(!has) pendingMessages.remove(p1);
+                    });
+
+                    playerGroup.all().forEach(p -> {
+                        if(!pendingMessages.containsKey(p)) pendingMessages.put(p, new Array<>());
+                    });
+                    String o = strToAlert;
+                    pendingMessages.keys().forEach(p -> print(o, p, true, false));
+                    lastAlert = time();
+                }
+
+
+                //if(index % 4 == 0){
+                    if(lastSent + 1000 < time()){
+                        sentThisSec = 0;
+                        lastSent = time();
+                    }
+                    if(pendingMessages.size > 0)
+                        for (; sentThisSec < nukealertlimit(); sentThisSec += pendingMessages.size) {
+                            for(Player p : pendingMessages.keys())
+                                if (pendingMessages.containsKey(p) && pendingMessages.get(p).size >= 1)
+                                    p.sendMessage(pendingMessages.get(p).remove(0));
+                        }
+                //}
+
+                index++;
+            }
+        });
     }
 
     @Override
-    public void registerServerCommands(CommandHandler handler){
+    public void registerServerCommands(CommandHandler handler) {
         handler.register("ghna", params, "Type 'ghna help' for more information", arg -> {
-            if(arg.length == 0)
+            if (arg.length == 0)
                 info(plguinStatus());
             else
                 switch (arg[0]) {
-                    case "bn": info(builtNukesToStringArr(true)); break;
-                    case "dn": info(destroyedNukesToStringArr(true)); break;
-                    case "rtrs": info(reactorsToStringArr()); break;
+                    //case "d":
+                    //    info("Ing: " + buildingNukesToAlert + "\nEd: " + builtNukesToAlert + "\nSize: Ing: " + buildingNukesToAlert.size + ", Ed: " + builtNukesToAlert.size + ", index: " + index);
+                    //    break;
+                    case "bn":
+                        if (arg.length > 1 && GHUtil.parseInt(arg[1]) != Integer.MAX_VALUE)
+                            info(builtNukesToStringArr(false, GHUtil.parseInt(arg[1])));
+                        else
+                            info(builtNukesToStringArr(false));
+                        break;
+                    case "dn":
+                        if (arg.length > 1 && GHUtil.parseInt(arg[1]) != Integer.MAX_VALUE)
+                            info(destroyedNukesToStringArr(false, GHUtil.parseInt(arg[1])));
+                        else
+                            info(destroyedNukesToStringArr(false));
+                        break;
+                    case "rtrs":
+                        if (arg.length > 1 && GHUtil.parseInt(arg[1]) != Integer.MAX_VALUE)
+                            info(reactorsToStringArr(false, GHUtil.parseInt(arg[1])));
+                        else
+                            info(reactorsToStringArr(false));
+                        break;
 
-                    case "help": info(description); break;
+                    case "help":
+                        info(description);
+                        break;
 
-                    case "interval":
-                        if(arg.length == 1) info("Alert Interval is currently [" + nukealertinterval() + "]");
+                    case "clear":
+                        builtNukesToAlert.clear();
+                        buildingNukesToAlert.clear();
+                        info("Alerting List of Nukes has been Cleared");
+                        break;
+
+                    case "mode":
+                        if (arg.length == 1) info("Alert is currently " + GHUtil.onOffString(nukealert()));
                         else {
-                            long level = GHUtil.parseInt(arg[1]);
-                            if (level < minInterval) info("[WARNING] arg[1](" + arg[1] + ") Is Below the Minimal Interval.");
-                            else if(level > maxInterval) info("[WARNING] arg[1](" + arg[1] + ") Is Above the Maximum Interval.");
-                            level = level < minInterval ? minInterval : level > maxInterval ? maxInterval : level;
-                            nukealertinterval(level);
-                            info("Alert Interval is set to [" + nukealertinterval() + "]");
+                            switch (arg[1]) {
+                                case "true":
+                                    nukealert(true);
+                                    break;
+                                case "false":
+                                    nukealert(false);
+                                    break;
+                                default:
+                                    info("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format.");
+                                    break;
+                            }
+                            info("Alert is set to " + GHUtil.onOffString(nukealert()));
+                        }
+                        break;
+                    case "aac":
+                        if (arg.length == 1)
+                            info("Allow Admin to Config is currently " + GHUtil.onOffString(allowadminconfig()));
+                        else {
+                            switch (arg[1]) {
+                                case "true":
+                                    allowadminconfig(true);
+                                    break;
+                                case "false":
+                                    allowadminconfig(false);
+                                    break;
+                                default:
+                                    info("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format.");
+                                    break;
+                            }
+                            info("Allow Admin to Config is set to " + GHUtil.onOffString(allowadminconfig()));
                         }
                         break;
 
                     case "al":
-                        if(arg.length == 1) info("Alert Level is currently [" + nukealertlevel() + "]");
+                        if (arg.length == 1) info("Alert Level is currently [" + nukealertlevel() + "]");
                         else {
                             int level = GHUtil.parseInt(arg[1]);
                             if (level < 0 || level > 2) {
                                 info("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format.");
-                                return;
+                                break;
                             }
                             nukealertlevel(level);
                             info("Alert Level is set to [" + nukealertlevel() + "]");
                         }
                         break;
 
+                    case "alim":
+                        if (arg.length == 1) info("Current Maximum Nuke Alert Rate is [" + nukealertlimit() + "/s]");
+                        else {
+                            int interval = GHUtil.parseInt(arg[1]);
+                            if (interval == Integer.MAX_VALUE) {
+                                info("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format.");
+                                break;
+                            }
+                            if (interval < 0) interval = Integer.MAX_VALUE;
+                            nukealertlimit(interval);
+                            info("Maximum Nuke Alert Rate is set to [" + nukealertlimit() + "/s]");
+                        }
+                        break;
+
+
                     case "cnp":
-                        if(arg.length == 1) info("Core Nuke Protection is currently [" + nukeprotection() + "]");
+                        if (arg.length == 1) info("Core Nuke Protection is currently [" + nukeprotection() + "]");
                         else {
                             int level = GHUtil.parseInt(arg[1]);
                             if (level < 0 || level > 2) {
                                 info("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format.");
-                                return;
+                                break;
                             }
                             nukeprotection(level);
                             info("Core Nuke Protection is set to [" + nukeprotection() + "]");
                         }
                         break;
 
-                    case "mode":
-                        if(arg.length == 1) info("Alert is currently " + GHUtil.onOffString(nukealert()));
-                        else switch (arg[1]) {
-                                case "true": nukealert(true); break;
-                                case "false": nukealert(false); break;
-                                default: info("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format."); return;
-                            }
-                        info("Alert is set to " + GHUtil.onOffString(nukealert()));
+                    case "interval":
+                        if (arg.length == 1) info("Alert Interval is currently [" + nukealertinterval() + "]");
+                        else {
+                            int level = GHUtil.parseInt(arg[1]);
+                            if (level < minInterval)
+                                info("[WARNING] arg[1](" + arg[1] + ") Is Below the Minimal Interval.");
+                            else if (level > maxInterval)
+                                info("[WARNING] arg[1](" + arg[1] + ") Is Above the Maximum Interval.");
+                            level = level < minInterval ? minInterval : level > maxInterval ? maxInterval : level;
+                            nukealertinterval(level);
+                            info("Alert Interval is set to [" + nukealertinterval() + "]");
+                        }
                         break;
 
                     case "logging":
-                        if(arg.length == 1) info("Logging is currently " + GHUtil.onOffString(nukelogging()));
-                        else switch (arg[1]) {
-                            case "true": nukelogging(true); break;
-                            case "false": nukelogging(false); break;
-                            default: info("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format."); return;
+                        if (arg.length == 1) info("Logging is currently " + GHUtil.onOffString(nukelogging()));
+                        else {
+                            switch (arg[1]) {
+                                case "true":
+                                    nukelogging(true);
+                                    break;
+                                case "false":
+                                    nukelogging(false);
+                                    break;
+                                default:
+                                    info("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format.");
+                                    break;
+                            }
+                            info("Logging is set to " + GHUtil.onOffString(nukelogging()));
                         }
-                        info("Logging is set to " + GHUtil.onOffString(nukelogging()));
                         break;
 
-                    default: info("You need some help? Do 'ghna help'"); break;
+                    default:
+                        info("You need some help? Do 'ghna help'");
+                        break;
                 }
         });
     }
 
     @Override
-    public void registerClientCommands(CommandHandler handler){
-
+    public void registerClientCommands(CommandHandler handler) {
         handler.<Player>register("ghna", params, "Type '/ghna help' for more information", (arg, player) -> {
-            if(!player.isAdmin) {
+            if (!player.isAdmin) {
                 print("[scarlet][ACCESS DENIED] This is an admin only command.", player);
                 return;
             }
-            if(arg.length == 0)
+            if (arg.length == 0)
                 print(plguinStatus(), player);
             else
                 switch (arg[0]) {
                     case "bn":
-                        print(builtNukesToStringArr(false), player);
-                        return;
+                        if (arg.length > 1 && GHUtil.parseInt(arg[1]) != Integer.MAX_VALUE)
+                            print(builtNukesToStringArr(false, GHUtil.parseInt(arg[1])), player);
+                        else
+                            print(builtNukesToStringArr(false), player);
+                        break;
 
                     case "dn":
-                        print(destroyedNukesToStringArr(false), player);
-                        return;
+                        if (arg.length > 1 && GHUtil.parseInt(arg[1]) != Integer.MAX_VALUE)
+                            print(destroyedNukesToStringArr(false, GHUtil.parseInt(arg[1])), player);
+                        else
+                            print(destroyedNukesToStringArr(false), player);
+                        break;
 
                     case "rtrs":
-                        print(reactorsToStringArr(), player);
-                        return;
+                        if (arg.length > 1 && GHUtil.parseInt(arg[1]) != Integer.MAX_VALUE)
+                            print(reactorsToStringArr(false, GHUtil.parseInt(arg[1])), player);
+                        else
+                            print(reactorsToStringArr(false), player);
+                        break;
 
                     case "help":
                         print(clientdescription, player);
                         break;
 
-                    default:
-                        print("You need some [yellow]help[]? Do '/ghna help'", player);
+                    case "clear":
+                        builtNukesToAlert.clear();
+                        buildingNukesToAlert.clear();
+                        print("Alerting List of Nukes has been Cleared", player);
+                        break;
+
+                    case "aac":
+                        info("Allow Admin to Config is currently " + GHUtil.onOffString(allowadminconfig()));
+                        break;
+
+                    case "al":
+                        if (!allowadminconfig() || arg.length == 1)
+                            print("Alert Level is currently [" + nukealertlevel() + "]", player);
+                        else {
+                            int level = GHUtil.parseInt(arg[1]);
+                            if (level < 0 || level > 2) {
+                                print("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format.", player);
+                                break;
+                            }
+                            nukealertlevel(level);
+                            print("Alert Level is set to [" + nukealertlevel() + "]", player);
+                        }
+                        break;
+
+                    case "alim":
+                        if (!allowadminconfig() || arg.length == 1)
+                            print("Current Maximum Nuke Alert Rate is [" + nukealertlimit() + "/s]", player);
+                        else {
+                            int interval = GHUtil.parseInt(arg[1]);
+                            if (interval == Integer.MAX_VALUE) {
+                                print("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format.", player);
+                                break;
+                            }
+                            if (interval < 0) interval = Integer.MAX_VALUE;
+                            nukealertlimit(interval);
+                            print("Maximum Nuke Alert Rate is set to [" + nukealertlimit() + "]", player);
+                        }
+                        break;
+
+                    case "cnp":
+                        if (!allowadminconfig() || arg.length == 1)
+                            print("Core Nuke Protection is currently [" + nukeprotection() + "]", player);
+                        else {
+                            int level = GHUtil.parseInt(arg[1]);
+                            if (level < 0 || level > 2) {
+                                print("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format.", player);
+                                break;
+                            }
+                            nukeprotection(level);
+                            print("Core Nuke Protection is set to [" + nukeprotection() + "]", player);
+                        }
+                        break;
+
+                    case "interval":
+                        if (!allowadminconfig() || arg.length == 1)
+                            print("Alert Interval is currently [" + nukealertinterval() + "]", player);
+                        else {
+                            int level = GHUtil.parseInt(arg[1]);
+                            if (level < minInterval)
+                                print("[WARNING] arg[1](" + arg[1] + ") Is Below the Minimal Interval.", player);
+                            else if (level > maxInterval)
+                                print("[WARNING] arg[1](" + arg[1] + ") Is Above the Maximum Interval.", player);
+                            level = level < minInterval ? minInterval : level > maxInterval ? maxInterval : level;
+                            nukealertinterval(level);
+                            print("Alert Interval is set to [" + nukealertinterval() + "]", player);
+                        }
+                        break;
+
+                    case "logging":
+                        if (!allowadminconfig() || arg.length == 1)
+                            print("Logging is currently " + GHUtil.onOffString(nukelogging()), player);
+                        else {
+                            switch (arg[1]) {
+                                case "true":
+                                    nukelogging(true);
+                                    break;
+                                case "false":
+                                    nukelogging(false);
+                                    break;
+                                default:
+                                    print("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format.", player);
+                                    break;
+                            }
+                            print("Logging is set to " + GHUtil.onOffString(nukelogging()), player);
+                        }
+                        break;
+
+                    case "mode":
+                        if (!allowadminconfig() || arg.length == 1)
+                            print("Alert is currently " + GHUtil.onOffString(nukealert()), player);
+                        else {
+                            switch (arg[1]) {
+                                case "true":
+                                    nukealert(true);
+                                    break;
+                                case "false":
+                                    nukealert(false);
+                                    break;
+                                default:
+                                    print("[ERROR] arg[1](" + arg[1] + ") Does Not Match the Format.", player);
+                                    break;
+                            }
+                            print("Alert is set to " + GHUtil.onOffString(nukealert()), player);
+                        }
                         break;
                 }
         });
     }
 
-    private void reset(){
+    private void reset() {
         prebuiltNukes.clear();
         builtNukes.clear();
         destroyedNukes.clear();
         nukeBuilders.clear();
         pendingMessages.clear();
         pendingInfo.clear();
-
+        builtNukesToAlert.clear();
+        buildingNukesToAlert.clear();
+        alertingNukes.clear();
         startTime = time();
     }
 
-    private String plguinStatus(){
+    private String plguinStatus() {
         return Log.format(LN +
-                "Nuke Alert Status: {0}" + LN +
-                "Alert Interval: {1}" + LN +
-                "Alert Level: {2}" + LN +
-                "Nuke Protection: {3}" + LN +
-                "Do Logging: {4}",
-                //"Log Visibility: {5}",
+                        "Nuke Alert Status: {0}" + LN +
+                        "Alert Interval: {1}" + LN +
+                        "Alert Level: {2}" + LN +
+                        "Nuke Protection: {3}" + LN +
+                        "Do Logging: {4}" + LN +
+                        "Allow Admin Configure: {5}",
+                        //"Log Visibility: {5}",
                 nukealert() + "",
                 nukealertinterval() + "",
                 nukealertlevel() + "",
                 nukeprotection() + "",
-                nukelogging() + "");//,
-        //nukelogvisibility() + "");
+                nukelogging() + "",
+                allowadminconfig());//,
+                //nukelogvisibility() + "");
     }
 
-    private void alert(Tile tile, Block block, Player builder, boolean building){
-        //System.out.println("[Debug]: " + GHUtil.tileToSimpleString(tile));
-        if(world.tile(tile.x, tile.y) == null || world.tile(tile.x, tile.y).block() != block)
-            //System.out.println("[Alert Ended]: " + GHUtil.tileToSimpleString(tile));
+    private void alert(Tile tile, Player builder, boolean building) {
+        if (builder == null) builder = nullBuilder;
+        //info("alert(): t: [" + tile.x + ", " + tile.y + "], p: " + GHUtil.colorizeName(builder) + ", b: " + building);
+        if (!nukealert()) {
+            if (builtNukesToAlert.get(builder).size() > 0) builtNukesToAlert.clear();
+            if (buildingNukesToAlert.get(builder).size() > 0) buildingNukesToAlert.clear();
             return;
-        if(lastAlert[building ? 0 : 1] + nukealertinterval() < time()){
-            printToEveryone("[Alert]: A NUKE IS " + (building ? "BEING " : "") + "BUILT AT " + smootherTilePosLog(tile.x, tile.y) + " BY PLAYER: [ " + GHUtil.fullPlayerName(builder) + " ]!", "[RED]");
-            lastAlert[building ? 0 : 1] = time();
         }
-        Timer.schedule(()-> alert(tile, block, builder, building), 0.1f);
+        Tile t = world.tile(tile.x, tile.y);
+        Block block = t.block();
+        boolean isNuke = true;
+        if (block == Blocks.thoriumReactor && !building) {
+            if (!builtNukesToAlert.containsKey(builder))
+                builtNukesToAlert.put(builder, new HashSet<>());
+            builtNukesToAlert.get(builder).add(tile);
+        } else if ((block instanceof BuildBlock && ((BuildBlock.BuildEntity) t.entity).cblock == Blocks.thoriumReactor) && building) {
+            if (!buildingNukesToAlert.containsKey(builder))
+                buildingNukesToAlert.put(builder, new HashSet<>());
+            buildingNukesToAlert.get(builder).add(tile);
+        } else isNuke = false;
+
+        if ((!isNuke || !building) && buildingNukesToAlert.containsKey(builder)) {
+            buildingNukesToAlert.get(builder).remove(tile);
+            if (buildingNukesToAlert.get(builder).size() == 0)
+                buildingNukesToAlert.remove(builder);
+        }
+        if ((!isNuke || building) && builtNukesToAlert.containsKey(builder)) {
+            builtNukesToAlert.get(builder).remove(tile);
+            if (builtNukesToAlert.get(builder).size() == 0)
+                builtNukesToAlert.remove(builder);
+        }
+        if(!isNuke) alertingNukes.remove(tile);
     }
 
-
-//Event Listeners
-    private void worldLoadEvent(){
-        if(nukealert() && nukelogging()) saveNukeInfos();
+    //Event Listeners
+    private void worldLoadEvent() {
+        if (nukealert() && nukelogging()) saveNukeInfos();
         reset();
+        for (Tile t : GHUtil.getTiles())
+            if ((t.block() == Blocks.thoriumReactor || (t.block() instanceof BuildBlock && ((BuildBlock.BuildEntity) t.entity).cblock == Blocks.thoriumReactor)) &&
+                    dstToClosestCore(t) <= coreProtectionRange && (!alertingNukes.containsKey(t) || alertingNukes.get(t))) {
+                alertingNukes.put(t, false);
+                alert(t, nullBuilder, t.block() == Blocks.thoriumReactor);
+                info("[Alert]: A NUKE IS BUILT AT " + smootherTilePosLog(t.x, t.y) + "!");
+            }
     }
-    private void buildSelectEvent(BuildSelectEvent e){
-        if(!nukealert()) return;
-        if(!(e.builder != null && e.builder.buildRequest() != null && e.builder instanceof Player && e.builder.buildRequest().block == Blocks.thoriumReactor)) return;
-        Player player = (Player)e.builder;
-        if(!e.breaking){
+
+    private void buildSelectEvent(BuildSelectEvent e) {
+        if (!nukealert()) return;
+        if (!(e.builder != null && e.builder.buildRequest() != null && e.builder instanceof Player && e.builder.buildRequest().block == Blocks.thoriumReactor))
+            return;
+        Player player = (Player) e.builder;
+        if (!e.breaking) {
             prebuiltNukes.put(e.tile, player);
-            if(dstToClosestCore(e.tile) <= coreProtectionRange)
-                alert(e.tile, e.tile.block(), player, true);
+            if (dstToClosestCore(e.tile) <= coreProtectionRange && (!alertingNukes.containsKey(e.tile) || !alertingNukes.get(e.tile))) {
+                alertingNukes.put(e.tile, true);
+                info("[Alert]: A NUKE IS BEING BUILT AT " + smootherTilePosLog(e.tile.x, e.tile.y) +
+                        " BY PLAYER: [ " + GHUtil.fullPlayerName(player, textColor) + " ]" + "!");
+            }
         }
+        if (dstToClosestCore(e.tile) <= coreProtectionRange)
+            alert(e.tile, player, true);
     }
-    private void blockBuildEndEvent(BlockBuildEndEvent e){
-        if(!nukealert()) return;
-        if(e.tile.block() == Blocks.thoriumReactor && !e.breaking){
+
+    private void blockBuildEndEvent(BlockBuildEndEvent e) {
+        if (!nukealert()) return;
+        Player builder = e.player;
+        if (e.tile.block() == Blocks.thoriumReactor && !e.breaking) {
             for (Tile prebuiltNuke : prebuiltNukes.keys()) {
-                Player builder = null;
                 if (prebuiltNuke == e.tile)
                     builder = prebuiltNukes.get(prebuiltNuke);
                 builtNukes.add(new BuiltNuke(time(), e.tile, builder));
-                if(builder == null) continue;
-                if(!nukeBuilders.containsKey(builder))
+                if (builder == null) continue;
+                if (!nukeBuilders.containsKey(builder))
                     nukeBuilders.put(builder, new NukesBuilt());
                 nukeBuilders.get(builder).add(dstToClosestCore(e.tile) <= coreProtectionRange);
-                if(dstToClosestCore(e.tile) <= coreProtectionRange)
-                    alert(e.tile, e.tile.block(), builder, false);
+                if (dstToClosestCore(e.tile) <= coreProtectionRange && (!alertingNukes.containsKey(e.tile) || alertingNukes.get(e.tile))) {
+                    alertingNukes.put(e.tile, false);
+                    info("[Alert]: A NUKE IS BUILT AT " + smootherTilePosLog(e.tile.x, e.tile.y) +
+                            " BY PLAYER: [ " + GHUtil.fullPlayerName(builder, textColor) + " ]" + "!");
+                }
             }
-        }else if(e.tile.block() == Blocks.air && e.breaking){
-            for(BuiltNuke nuke : builtNukes)
-                if(nuke.x == e.tile.x && nuke.y == e.tile.y) {
+        } else if (e.tile.block() == Blocks.air && e.breaking) {
+            for (BuiltNuke nuke : builtNukes)
+                if (nuke.x == e.tile.x && nuke.y == e.tile.y) {
                     destroyedNukes.add(new DestroyedNuke(time(), e.tile, new ConditionWhenDestroyed(-1f, -1f, -1)));
                     break;
                 }
         }
+        if (dstToClosestCore(e.tile) <= coreProtectionRange)
+            alert(e.tile, builder, false);
         prebuiltNukes.remove(e.tile);
     }
-    private void blockDestroyEvent(BlockDestroyEvent e){
-        if(!nukealert()) return;
-        if(e.tile.block() == Blocks.thoriumReactor) {
+
+    private void blockDestroyEvent(BlockDestroyEvent e) {
+        if (!nukealert()) return;
+        if (dstToClosestCore(e.tile) <= coreProtectionRange)
+            alert(e.tile, nullBuilder, false);
+        if (e.tile.block() == Blocks.thoriumReactor) {
             NuclearReactor.NuclearReactorEntity entity = (NuclearReactor.NuclearReactorEntity) e.tile.entity;
             destroyedNukes.add(new DestroyedNuke(time(), e.tile, new ConditionWhenDestroyed(entity.healthf(), entity.heat, entity.items.total())));
-            switch(nukeprotection()) {
+            switch (nukeprotection()) {
                 case 1:
                     if (dstToClosestCore(e.tile) > coreProtectionRange) return;
-                    entity.items.clear();
-                    entity.heat = 0f;
+                    entity.items.set(Items.thorium, Integer.MIN_VALUE);
+                    entity.heat = Float.MIN_VALUE;
                     break;
                 case 2:
-                    entity.items.clear();
-                    entity.heat = 0f;
+                    entity.items.set(Items.thorium, Integer.MIN_VALUE);
+                    entity.heat = Float.MIN_VALUE;
                     break;
             }
-        }else if(e.tile.block().name.equals("build3")){
+        } else if (e.tile.block().name.equals("build3")) {
             prebuiltNukes.remove(e.tile);
         }
     }
 //  Event Listeners
 
-//To String
-    private Array<String> builtNukesToStringArr(boolean server){
+    //To String
+    private Array<String> builtNukesToStringArr(boolean server) {
+        return builtNukesToStringArr(server, -1);
+    }
+    private Array<String> builtNukesToStringArr(boolean server, int amount) {
         Array<String> result = new Array<>();
         StringBuilder sb = new StringBuilder();
         BuiltNuke nuke;
-        for(int i = 0; i < builtNukes.size; i++){
+        int i = amount < 0 ? 0 : builtNukes.size - amount;
+        for (; i < builtNukes.size; i++) {
             sb.delete(0, sb.length());
             nuke = builtNukes.get(i);
             sb.append("[").append(smootherIntLog(i, builtNukes.size, "0")).append("]: ");
             sb.append(msToDate(nuke.time)).append(": ");
             sb.append(smootherTilePosLog(nuke.x, nuke.y)).append(": ");
-            if(server) sb.append("[").append(nuke.builder.id).append("]");
-            else sb.append(GHUtil.fullPlayerName(nuke.builder));
+            if (server) sb.append("[").append(nuke.builder == null ? "null" : nuke.builder.id).append("]");
+            else sb.append(GHUtil.fullPlayerName(nuke.builder, textColor));
             result.add(sb.toString());
         }
         return result;
     }
-    private Array<String> destroyedNukesToStringArr(boolean server){
+
+    private Array<String> destroyedNukesToStringArr(boolean server) {
+        return destroyedNukesToStringArr(server, -1);
+    }
+    private Array<String> destroyedNukesToStringArr(boolean server, int amount) {
         Array<String> result = new Array<>();
         StringBuilder sb = new StringBuilder();
         DestroyedNuke nuke;
-        for(int i = 0; i < destroyedNukes.size; i++){
+        int i = amount < 0 ? 0 : destroyedNukes.size - amount;
+        for (; i < destroyedNukes.size; i++) {
             sb.delete(0, sb.length());
             nuke = destroyedNukes.get(i);
             sb.append("[").append(smootherIntLog(i, destroyedNukes.size, "0")).append("]: ");
@@ -342,64 +736,78 @@ public class GHNukeAlert extends Plugin{
         }
         return result;
     }
-    private Array<String> nukeBuildersToStringArr(){
+
+    private Array<String> reactorsToStringArr(boolean server) {
+        return reactorsToStringArr(server, -1);
+    }
+    private Array<String> reactorsToStringArr(boolean server, int amount) {
+        HashMap<Team, HashMap<Tile, Float>> reactors = new HashMap<>();
         Array<String> result = new Array<>();
-        for(Player player : nukeBuilders.keys())
+
+        for(Team team : Team.values()) reactors.put(team, new HashMap<>());
+
+        for(Tile tile : getTiles())
+            if (tile.block() == Blocks.thoriumReactor && closestCore(tile) != null)
+                reactors.get(tile.getTeam()).put(tile, tile.dst(Objects.requireNonNull(closestCore(tile))));
+
+        int i = amount < 0 ? Integer.MAX_VALUE : amount;
+        for (Team team : Team.values()) {
+            if(i < 0) break;
+            HashMap<Tile, Float> teamReactors = reactors.get(team), sorted =
+                    teamReactors.entrySet().stream().sorted(comparingByValue()).collect(toMap(Map.Entry::getKey, Map.Entry::getValue, (e1, e2) -> e2, LinkedHashMap::new));
+
+            reactors.put(team, new HashMap<>(sorted));
+
+            if (teamReactors.size() < 1) continue;
+            Tile closest = teamReactors.keySet().toArray(new Tile[0])[0];
+            float dst = teamReactors.get(closest);
+            result.add("Team: [[[#" + closest.getTeam().color + "]" + closest.getTeam() + "[]]: Nukes: \n");
+            teamReactors.keySet().forEach(t -> result.add(GHUtil.tileToSimpleString(t)));
+            result.add("\nShortest Dst: [" + smootherFloatLog(dst, 5) + "]");
+            i--;
+        }
+        return result;
+    }
+
+    private Array<String> nukeBuildersToStringArr() {
+        Array<String> result = new Array<>();
+        for (Player player : nukeBuilders.keys())
             result.add("[" + smootherIntLog(result.size, nukeBuilders.size, "0") + ": " + nukeBuilders.get(player).toString(player));
         return result;
     }
-    private Array<String> reactorsToStringArr(){
-        ObjectMap<Tile, Team> cores = new ObjectMap<>(), reactors = new ObjectMap<>();
+
+    private Array<String> oStrArrToStr(Array<String> arr) {
+        return oStrArrToStr(arr, -1);
+    }
+
+    private Array<String> oStrArrToStr(Array<String> arr, int total) {
         Array<String> result = new Array<>();
-        for (int x = 0; x < world.width(); x++)
-            for (int y = 0; y < world.height(); y++) {
-                if (world.tile(x, y).block() instanceof CoreBlock) {
-                    cores.put(world.tile(x, y), world.tile(x, y).getTeam());
-                    continue;
-                }
-                if (world.tile(x, y).block() == Blocks.thoriumReactor)
-                    reactors.put(world.tile(x, y), world.tile(x, y).getTeam());
-            }
-
-        for (Tile reactor : reactors.keys()) {
-            Tile closestCore = closestCore(reactor);
-            if(closestCore == null) continue;
-            result.add("Team: [" + reactor.getTeam() + "]: Nuke: " + smootherTilePosLog(reactor.x, reactor.y) + ", Core: " + smootherTilePosLog(closestCore.x, closestCore.y) + ", " +
-                    "Dst: [" + smootherFloatLog(reactor.dst(closestCore), 5) + "]");
-        }
-        return result;
-    }
-
-    private void oStrArrToStr(Array<String> arr) {
-        oStrArrToStr(arr, null);
-    }
-    private void oStrArrToStr(Array<String> arr, Player player) {
         StringBuilder msg = new StringBuilder();
-        for(int i = 0; i < arr.size; i++){
-            if (msg.length() + arr.get(i).length() >= 1024 || (i % 8 == 0 && i != 0) && msg.length() != 0){
-                if(player != null) print(msg.toString(), player);
-                else info(msg.toString());
-                msg.delete(0, msg.length() - 1);
+        for (int i = 0; i < arr.size; i++) {
+            if (msg.length() + arr.get(i).length() >= 1024 || (i % 8 == 0 && i != 0) && msg.length() != 0) {
+                result.add(msg.toString());
+                if (msg.length() > 0) msg.delete(0, msg.length() - 1);
             }
             msg.append(LN).append(arr.get(i));
-            if(i + 1 < arr.size) msg.append(", ");
+            if (i + 1 < arr.size) msg.append(", ");
         }
-        msg.append(LN).append("Total: ").append(arr.size);
-        if(player != null) print(msg.toString(), player);
-        else info(msg.toString());
+        if(total != -1)
+            msg.append(LN).append("Total: ").append(arr.size - total);
+        result.add(msg.toString());
+        return result;
     }
 //  To String
 
-//Save
-    private void saveNukeInfos(){
-        if(startTime == endTime) return;
+    //Save
+    private void saveNukeInfos() {
+        if (startTime == endTime) return;
         System.out.println(Core.settings.getDataDirectory());
         endTime = time();
         File file = new File(ghnaDirectory.path() + "\\" + msToFileName(time()) + ".txt");
         System.out.println(file.getAbsolutePath());
 
         //create new txt file or sth
-        try(BufferedWriter br = new BufferedWriter(new FileWriter(file))){
+        try (BufferedWriter br = new BufferedWriter(new FileWriter(file))) {
             //Yes. I am using BufferedWriter here. GH is Here.
             br.write("[Nuke Info]:{" + LN + LN);
             br.write("Time: From: " + msToDate(startTime) + "    To: " + msToDate(endTime) + "    Time Zone: " + getTimeZone() + LN);
@@ -413,149 +821,223 @@ public class GHNukeAlert extends Plugin{
             br.write(nukeBuildersToStringArr().toString(LN) + " }" + LN + LN + LN);
 
             info("[GHNA]: New Log is Created [" + file.getAbsolutePath() + "]");
-        }catch (IOException e){
+        } catch (IOException e) {
             e.printStackTrace();
         }
     }
 //  Save
 
-//Log & Send Message
-    private void info(String str){
+    //Log & Send Message
+    private void info(String str) {
         pendingInfo.add(str);
         infoPrint();
     }
-    private void info(Array<String> arr){
-        oStrArrToStr(arr);
+
+    private void info(Array<String> arr) {
+        for(String str : oStrArrToStr(arr)){
+            info(str);
+        }
     }
-    private void infoPrint(){
-        if(pendingInfo.size > 0) Log.info(pendingInfo.remove(0));
-        if(pendingInfo.size > 0) Timer.schedule(this::infoPrint, 1/60f);
+
+    private void infoPrint() {
+        if (pendingInfo.size > 0) Log.info(pendingInfo.remove(0));
+        if (pendingInfo.size > 0) Timer.schedule(this::infoPrint, Time.delta());
     }
-    private void sendMessage(){
-        sendingMsg = false;
-        pendingMessages.each((p, a) -> {
-            if(a.size > 0) {
-                p.sendMessage(a.remove(0));
-                sendingMsg = true;
-            }
-        });
-        if(sendingMsg) Timer.schedule(this::sendMessage, 1/10f);
+
+
+    private void print(String str, Player player) {
+        print(str, player, false, true);
     }
-    private void print(String str, Player player){
-        if(!pendingMessages.containsKey(player))
+    private void print(String str, Player player, boolean urgent) {
+        print(str, player, urgent, true);
+    }
+    private void print(String str, Player player, boolean urgent, boolean defColor) {
+        if (!pendingMessages.containsKey(player))
             pendingMessages.put(player, new Array<>());
-        pendingMessages.get(player).add(str);
-        if(sendingMsg) return;
-        sendingMsg = true;
-        sendMessage();
+
+        String[] lines = str.split(LN);
+        StringBuilder current = new StringBuilder();
+        int maxLines = 8;
+        for(int i = 0, j = 0; i <= lines.length; i++, j++) {
+            if (i < lines.length) {
+                if (j != 0) current.append(LN);
+                    current.append(lines[i]);
+                if (j < maxLines) continue;
+            }
+            String o = (defColor ? textColor : "") + current.toString();
+            if (urgent) pendingMessages.get(player).insert(0, o);
+            else pendingMessages.get(player).add(o);
+            current.delete(0, current.length());
+            j = 0;
+        }
     }
-    private void print(Array<String> arr, Player player){
-        oStrArrToStr(arr, player);
+
+
+    private void print(Array<String> arr, Player player) {
+        print(arr, player, false, true);
     }
-    private void printToEveryone(String str, String textcolor){
+    private void print(Array<String> arr, Player player, boolean urgent, boolean defColor) {
+        for(String str : oStrArrToStr(arr)) {
+            print(str, player, false, true);
+        }
+    }
+
+    private void printToEveryone(String str) {
+        printToEveryone(str, false);
+    }
+    private void printToEveryone(String str, boolean urgent) {
         int alertLevel = nukealertlevel();
-        for(Player player : playerGroup.all())
-            if(alertLevel == 2 || (alertLevel == 1 && player.isAdmin))
-                print(textcolor + str, player);
+        for (Player player : playerGroup.all())
+            if (alertLevel == 2 || (alertLevel == 1 && player.isAdmin))
+                print(str, player, urgent);
 
         //Let's not do this, Logging Alerts into Console is Pretty Spammy.
         //info(str);
     }
 //  Log & Send Message
 
-//Utils
-    private Tile closestCore(Tile tile){
-    if(state.teams.get(tile.getTeam()).cores.size <= 0) return null;
-    return Geometry.findClosest(tile.x, tile.y, state.teams.get(tile.getTeam()).cores);
-}
-    private float dstToClosestCore(Tile tile){
+    //Utils
+    private int nukeIndex(Tile t){
+        return t.block() == Blocks.thoriumReactor ? 1 : t.block() instanceof BuildBlock && ((BuildBlock.BuildEntity) t.entity).cblock == Blocks.thoriumReactor ? 0 : -1;
+    }
+
+    private Tile closestCore(Tile tile) {
+        if (state.teams.get(tile.getTeam()).cores.size <= 0) return null;
+        return Geometry.findClosest(tile.x, tile.y, state.teams.get(tile.getTeam()).cores);
+    }
+
+    private float dstToClosestCore(Tile tile) {
         if (state.teams.get(tile.getTeam()).cores.size <= 0) return -1f;
         Tile core = Geometry.findClosest(tile.x, tile.y, state.teams.get(tile.getTeam()).cores);
         return tile.dst(core) - (core.block().size * tilesize / 2f + 1);
     }
-    private String smootherFloatLog(float f, int to){
+
+    private String smootherFloatLog(float f, int to) {
         return smootherFloatLog(f, to, " ");
     }
-    private String smootherFloatLog(float f, int to, String fill){
+
+    private String smootherFloatLog(float f, int to, String fill) {
         StringBuilder sb = new StringBuilder();
         int sf = String.valueOf(f).length();
-        if(sf > to) return String.valueOf(f).substring(0, to);
-        for(int j = to - sf; j > 0; j--) sb.append(fill);
+        if (sf > to) return String.valueOf(f).substring(0, to);
+        for (int j = to - sf; j > 0; j--) sb.append(fill);
         return sb.append(f).toString();
     }
+
     private String smootherIntLog(int i, int to) {
         return smootherIntLog(i, to, " ");
     }
-    private String smootherIntLog(int i, int to, String fill){
+
+    private String smootherIntLog(int i, int to, String fill) {
         StringBuilder sb = new StringBuilder();
-        for(int j = String.valueOf(to).length() - String.valueOf(i).length(); j > 0; j--)
+        for (int j = String.valueOf(to).length() - String.valueOf(i).length(); j > 0; j--)
             sb.append(fill);
         return sb.append(i).toString();
     }
-    private String smootherTilePosLog(short x, short y){
+
+    private String smootherTilePosLog(short x, short y) {
         return "[" + smootherIntLog(x, world.width()) + ", " + smootherIntLog(y, world.height()) + "]";
     }
 
-    private boolean nukealert(){
+    private <T> T getSetting(String name, Class<T> type, Supplier<T> def){
+        return Core.settings.getObject(name, type, def);
+    }
+    private void setSetting(String name, Object value, Class<?> type){
+        Core.settings.putObject(name, value, type);
+    }
+
+    private boolean nukealert() {
         return Core.settings.getBool("nukealert", true);
     }
-    private void nukealert(boolean b){
+
+    private void nukealert(boolean b) {
         Core.settings.put("nukealert", b);
         Core.settings.save();
     }
-    private int nukealertinterval(){
-        return Core.settings.getInt("nukealertinterval", (int)minInterval);
+
+    private int nukealertinterval() {
+        return Core.settings.getInt("nukealertinterval", (int) minInterval);
     }
-    private void nukealertinterval(long i){
+
+    private void nukealertinterval(int i) {
         i = i < minInterval ? minInterval : i > maxInterval ? maxInterval : i;
         Core.settings.put("nukealertinterval", i);
         Core.settings.save();
     }
-    private int nukealertlevel(){
+
+    private int nukealertlevel() {
         return Core.settings.getInt("nukealertlevel", 2);
     }
-    private void nukealertlevel(int i){
+
+    private void nukealertlevel(int i) {
         Core.settings.put("nukealertlevel", i);
         Core.settings.save();
     }
-    private int nukeprotection(){
+
+    private int nukeprotection() {
         return Core.settings.getInt("nukeprotection", 1);
     }
-    private void nukeprotection(int i){
+
+    private void nukeprotection(int i) {
         Core.settings.put("nukeprotection", i);
         Core.settings.save();
     }
-    private boolean nukelogging(){
+
+    private boolean nukelogging() {
         return Core.settings.getBool("nukelogging", true);
     }
-    private void nukelogging(boolean b){
+
+    private void nukelogging(boolean b) {
         Core.settings.put("nukelogging", b);
+        Core.settings.save();
+    }
+
+    private int nukealertlimit() {
+        return Core.settings.getInt("nukealertlimit", 200);
+    }
+
+    private void nukealertlimit(int i) {
+        Core.settings.put("nukealertlimit", i);
+        Core.settings.save();
+    }
+
+    private boolean allowadminconfig(){
+        return Core.settings.getBool("allowadminconfig", true);
+    }
+
+    private void allowadminconfig(boolean b){
+        Core.settings.put("allowadminconfig", b);
         Core.settings.save();
     }
 //  Utils
 
-//Time
-    private long time(){
+    //Time
+    private long time() {
         return System.currentTimeMillis();
     }
-    private String getTimeZone(){
+
+    private String getTimeZone() {
         return new GregorianCalendar().getTimeZone().getDisplayName(false, TimeZone.SHORT);
     }
-    private String periodToTimeStr(long period){
-        int ms = (int)period % 1000,
-        sec = (int)(period / 1000 % 60),
-        min = (int)(period / (1000 * 60) % 60),
-        hr = (int)(period / (1000 * 60 * 60) % 24),
-        days = (int)(period / (1000 * 60 * 60 * 24));
-        return "[" + (days == 0 ? "" : days + ":") + smootherIntLog(hr, 23, "0") + ":" + smootherIntLog(min, 59, "0") + ":" + smootherIntLog(sec, 59, "0")  + "." + smootherIntLog(ms, 999, "0") + "]";
+
+    private String periodToTimeStr(long period) {
+        int ms = (int) period % 1000,
+                sec = (int) (period / 1000 % 60),
+                min = (int) (period / (1000 * 60) % 60),
+                hr = (int) (period / (1000 * 60 * 60) % 24),
+                days = (int) (period / (1000 * 60 * 60 * 24));
+        return "[" + (days == 0 ? "" : days + ":") + smootherIntLog(hr, 23, "0") + ":" + smootherIntLog(min, 59, "0") + ":" + smootherIntLog(sec, 59, "0") + "." + smootherIntLog(ms, 999, "0") + "]";
     }
+
     private String msToDate(long ms) {
         return msToString(ms, true, false, false, ":", " | ", ".");
     }
-    private String msToFileName(long ms){
+
+    private String msToFileName(long ms) {
         return msToString(ms, false, true, true, "-", "-", "-");
     }
-    private String msToString(long ms, boolean outer, boolean date, boolean timezone, String sep1, String sep2, String sep3){
+
+    private String msToString(long ms, boolean outer, boolean date, boolean timezone, String sep1, String sep2, String sep3) {
         Calendar cal = new GregorianCalendar();
         cal.setTimeInMillis(ms);
         String yr = String.valueOf(cal.get(Calendar.YEAR));
@@ -570,8 +1052,8 @@ public class GHNukeAlert extends Plugin{
     }
 //  Time
 
-//Classes
-    private class BuiltNuke{
+    //Classes
+    private class BuiltNuke {
         Long time;
         short x, y;
         Player builder;
@@ -584,7 +1066,7 @@ public class GHNukeAlert extends Plugin{
         }
     }
 
-    private class DestroyedNuke{
+    private class DestroyedNuke {
         Long time;
         short x, y;
         ConditionWhenDestroyed cwd;
@@ -597,7 +1079,7 @@ public class GHNukeAlert extends Plugin{
         }
     }
 
-    private class ConditionWhenDestroyed{
+    private class ConditionWhenDestroyed {
         float healthf;
         float heat;
         int items;
@@ -608,7 +1090,7 @@ public class GHNukeAlert extends Plugin{
             this.items = items;
         }
 
-        private String toString(boolean colorized){
+        private String toString(boolean colorized) {
             //D.I.E.  Deconstructed, has Items, Exploded. :D
 
             //L.M.A.O Long & Messy, Actual Outrage.
@@ -619,22 +1101,24 @@ public class GHNukeAlert extends Plugin{
             result += overheat() ? (colorized ? "[RED]" : "") + "E[]" : " ";
             result += deconstructed() || hasItem() || overheat() ? "]" : " ";
 
-            result += "Healthf: " + smootherFloatLog(healthf, 10000) + ", Heat: " + smootherFloatLog(heat, 10000) + ", Items: " + smootherIntLog(items, 30);
+            result += "Healthf: " + smootherFloatLog(healthf, 5) + ", Heat: " + smootherFloatLog(heat, 5) + ", Items: " + smootherIntLog(items, 2);
             return result;
         }
 
-        private boolean deconstructed(){
+        private boolean deconstructed() {
             return healthf == heat && heat == items && items == -1;
         }
-        private boolean hasItem(){
+
+        private boolean hasItem() {
             return items > 0;
         }
-        private boolean overheat(){
+
+        private boolean overheat() {
             return heat >= 0.999f;
         }
     }
 
-    private class NukesBuilt{
+    private class NukesBuilt {
         private int nukes, lethalNukes;
 
         private NukesBuilt() {
@@ -642,223 +1126,13 @@ public class GHNukeAlert extends Plugin{
         }
 
         private void add(boolean lethal) {
-            if(lethal)
+            if (lethal)
                 nukes++;
             lethalNukes++;
         }
 
-        private String toString(Player player){
-            return "Nuke: [" + nukes + ", " + lethalNukes + "], ID: [" + player.id + "], Player: [ " + player.name + " ], UUID: [" + player.uuid + "], IP: [" + player.con.address + "]";
+        private String toString(Player player) {
+            return "Nuke: [" + nukes + ", " + lethalNukes + "], " + (player.con == null ? "[Anonymous]" : "ID: [" + player.id + "], Player: [ " + player.name + " ], UUID: [" + player.uuid + "], IP: [" + player.con.address + "]");
         }
     }
-//  Classes
-
-//Future & Unrelated Stuffs
-
-
-    /* Player Record (Time)
-    private LinkedHashMap<Player, PlayerRecord> playersJoined = new LinkedHashMap<>();
-
-    Events.on(PlayerJoin.class, this::playerJoin);
-    Events.on(PlayerLeave.class, this::playerLeave);
-
-    private void playerJoin(PlayerJoin e){
-        if(!playersJoined.containsKey(e.player))
-            playersJoined.put(e.player, new PlayerRecord());
-        playersJoined.get(e.player).add(true);
-    }
-
-    private void playerLeave(PlayerLeave e){
-        if(!playersJoined.containsKey(e.player))
-            playersJoined.put(e.player, new PlayerRecord());
-        playersJoined.get(e.player).add(false);
-    }
-
-    private Array<String> playersJoinedToStringArr(int mode){
-        //mode: 0 = client, 1 = server, 2 = file logs
-        Array<String> result = new Array<>();
-        playersJoined.forEach((p, r) -> result.add("[" + (mode < 2 ? r.toSimpleString(p, mode == 1) : r.toFullString(p)) + "]"));
-        return result;
-    }
-
-    private class PlayerRecord{
-        Array<Long> joinTimes, leaveTimes;
-
-        private PlayerRecord(){
-            joinTimes = new Array<>();
-            leaveTimes = new Array<>();
-            joinTimes.add(startTime);
-        }
-        private void add(boolean join){
-            if(join) joinTimes.insert(0, time());
-            else leaveTimes.insert(0, time());
-        }
-        private String toSimpleString(Player player, boolean server){
-            long lastJoin = joinTimes.get(0);
-            long lastLeave = leaveTimes.size == 0 ? time() : leaveTimes.get(0);
-            return "[<" + (server ? player.name : GHUtil.colorizeName(player)) + "[white]>" +
-                    "\nLast Join: " + msToDate(lastJoin) +
-                    "\nLast Leave: " + msToDate(lastLeave) +
-                    "\nTotal Play Time: " + periodToTimeStr(totalPlayTime()) + "]";
-        }
-        private String toFullString(Player player){
-            Array<String> joinTimesStr = new Array<>(), leaveTimesStr = new Array<>();
-            joinTimes.forEach(t -> joinTimesStr.add(msToDate(t)));
-            leaveTimes.forEach(t -> leaveTimesStr.add(msToDate(t)));
-            return "[<" + player.name + ">" +
-                    "\nJoin Times: " + joinTimes.toString(", ") +
-                    "\nLeave Times: " + leaveTimes.toString(", ") +
-                    "\nTotal Play Time: " + periodToTimeStr(totalPlayTime()) + "]";
-        }
-        private long totalPlayTime() {
-            long totalPlayTime = 0;
-            for(int i = 0; i < joinTimes.size; i++)
-                if(i < leaveTimes.size) totalPlayTime += leaveTimes.get(i) - joinTimes.get(i);
-                else totalPlayTime += time() - joinTimes.get(i);
-            return totalPlayTime;
-        }
-    }
-    Player Record (Time) */
-
-//  Future & Unrelated Stuffs
-
-//Vote
-
-
-        /*handler.<Player>register("votetodisablethatcoolandusefulcorenukeprotectionforoneminutebecauseiamstupidandundeterminedthaticanneverrecoverfromthateasilyfixablesituation",
-                "[1|0]", "Vote for Core Nuke Protection to Disable for 1 minute", (args, player) -> {
-            if(args.length == 0) {
-                if(session.active + voteDuration < System.currentTimeMillis()) {
-                    Call.sendMessage(Strings.format("{0}[lightgray] has started a vote to Disable Core Nuke Protection for 1 minute \n[lightgray]Type[orange]'/votetodisablethatcoolandusefulcorenukeprotectionforoneminutebecauseiamstupidandundeterminedthaticanneverrecoverfromthateasilyfixablesituation 1' to agree."));
-                    session = new VoteSession();
-                }else
-                    print("[scarlet][ERROR] There is a vote going on right now, 1 vote at a time.", player);
-            }else if(args.length == 1){
-                if(session.active + voteDuration < System.currentTimeMillis()){
-                    print("[scarlet][ERROR] There is no vote going on right now.", player);
-                    return;
-                }
-                if(args[0].equals("1") || args[0].equals("0")) {
-                    Call.sendMessage(Strings.format("{0}[lightgray] has voted to Disable Core Nuke Protection for 1 minute [accent] ({1}/{2})\n[lightgray]Type[orange]'/votetodisablethatcoolandusefulcorenukeprotectionforoneminutebecauseiamstupidandundeterminedthaticanneverrecoverfromthateasilyfixablesituation 1' to agree.",
-                            GHUtil.fullPlayerName(player), session.votes, session.votesRequired()));
-                    session.vote(player, args[0].equals("1"));
-                    session.checkPass();
-                    vtime.reset();
-                }else{
-                    print("[scarlet][ERROR] Invalid 1st Argument. Please Try Again.", player);
-                }
-            }else{
-                print("[scarlet][ERROR] There're too many Arguments. Only 1 is needed. Please Try Again.", player);
-            }
-        });*/
-    /*private int voteTime = 60 * 10;
-    private Timekeeper vtime = new Timekeeper(voteTime);
-    private int voteDuration = 2 * 60 * 1000;
-    //current kick sessions
-    private VoteSession session = new VoteSession(-1);
-
-    class VoteSession{
-        long active;
-        ObjectSet<String> voted = new ObjectSet<>();
-        Timer.Task task;
-        int yes = 0, no = 0, adminYes = 0, adminNo = 0;
-        int votes;
-
-        private VoteSession(){
-            this(time());
-        }
-
-        private VoteSession(long time){
-            this.active = time;
-            this.task = Timer.schedule(() -> {
-                if(!checkPass())
-                    Call.sendMessage("[lightgray]Vote Failed. Not Enough Votes to Disable Core Nuke Protection.");
-                task.cancel();
-            }, voteDuration);
-        }
-
-        boolean checkPass(){
-            if(votes >= votesRequired() && votePassed()){
-                int current = nukeprotection();
-                nukeprotection(0);
-                Call.sendMessage("[green]Vote Passed. Nuke Protection is Disabled for 1 minute.");
-                Timer.schedule(() -> {
-                            nukeprotection(current);
-                            Call.sendMessage("[grey]Nuke Protection is On again.");
-                        }, 60f);
-                task.cancel();
-                return true;
-            }
-            return false;
-        }
-
-        public void vote(Player player, boolean yes){
-            session.votes++;
-            //session.voted.addAll(player.uuid, netServer.admins.getInfo(player.uuid).lastIP);
-            if(player.isAdmin)
-                if(yes) session.adminYes++; else session.adminNo++;
-            else
-                if(yes) session.yes++; else session.no++;
-        }
-
-        public int votesRequired(){
-            return 5;
-        }
-
-        public boolean votePassed(){
-            return yes + adminYes * 3 > no * 2 + adminNo * 4;
-        }
-    }*/
-//  Vote
-
-    /*
-    private void adminChatSendMessage(String[] dirty, Player player) {
-        Array<String> arr = new Array<>(dirty);
-        arr.remove(0);
-        StringBuilder msg = new StringBuilder();
-        msg.append("[GOLD][AC][").append(player == null ? "[SCARLET]Server[GOLD]" : GHUtil.fullPlayerName(player, Color.GOLD)).append("]: ");
-        for(int i = 0; i < arr.size; i++){
-            msg.append(arr.get(i));
-            if(i + 1 < arr.size)
-                msg.append(" ");
-        }
-        adminChatSendMessage(msg.toString());
-    }
-    private void adminChatSendMessage(String msg){
-        for(Player player : playerGroup.all())
-            if (player.isAdmin)
-                adminChat.add(player);
-        for(Player player : adminChat)
-            player.sendMessage(msg);
-        info(msg);
-    }
-
-    private Array<Player> adminChat = new Array<>();
-
-                    case "ac": adminChatSendMessage(arg, null); break;
-
-        handler.<Player>register("ac [msg|command]", "Admin Chat. 'join|leave' 'kick'(admin only)", (arg, player) -> {
-            if(player.isAdmin)
-                adminChatSendMessage(arg, player);
-            else
-                if(arg.length >= 2)
-                    switch(arg[1]){
-                        case "join":
-                            if (!adminChat.contains(player)) {
-                                adminChat.add(player);
-                                adminChatSendMessage(GHUtil.fullPlayerName(player) + "[accent]has joined the Admin Chat.");
-                            } else print("[ERROR] You are already in the Admin Chat.", player);
-                            break;
-
-                        case "leave":
-                            if (adminChat.remove(player)) adminChatSendMessage(GHUtil.fullPlayerName(player) + "[accent]has left the Admin Chat.");
-                            else print("[ERROR] You are not in the Admin Chat.", player);
-                            break;
-                        default:
-                            if (adminChat.contains(player)) adminChatSendMessage(arg, player);
-                            else print("[ERROR] You are not in the Admin Chat.", player);
-                            break;
-                }
-        });
-    */
 }
